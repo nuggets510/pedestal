@@ -165,7 +165,7 @@
             graph (reduce topo-visit graph (:deps n))]
         (assoc graph ::order (conj (::order graph) node))))))
 
-(defn- sort-derive-fns
+(defn sort-derive-fns
   "Return a sorted sequence of derive function configurations."
   [derive-fns]
   (let [derive-fns (map #(assoc % :id (gensym)) derive-fns)
@@ -201,7 +201,7 @@
 (defn- merge-changes [old-changes new-changes]
   (merge-with into old-changes new-changes))
 
-(defn- update-flow-state [state tracking-map]
+(defn update-flow-state [state tracking-map]
   (-> state
       (assoc-in [:new :data-model] @tracking-map)
       (update-in [:change] merge-changes (tm/changes tracking-map))))
@@ -230,7 +230,7 @@
   [state changed-inputs input-path]
   (some (partial descendent? input-path) changed-inputs))
 
-(defn- propagate?
+(defn propagate?
   "Return true if a dependent function should be run based on the
   state of its input paths.
 
@@ -252,7 +252,7 @@
           m
           ks))
 
-(defn- flow-input [context state input-paths change]
+(defn flow-input [context state input-paths change]
   (-> context
       (assoc :new-model (get-in state [:new :data-model]))
       (assoc :old-model (get-in state [:old :data-model]))
@@ -260,7 +260,7 @@
       (merge (select-keys change [:added :updated :removed]))
       (update-input-sets [:added :updated :removed] filter input-paths)))
 
-(defn- dataflow-fn-args [inputs args-key arg-names]
+(defn dataflow-fn-args [inputs args-key arg-names]
   (case args-key
     :vals [(input-vals inputs)]
     :map [(input-map inputs arg-names)]
@@ -377,7 +377,7 @@
               effect-phase
               emit-phase))))
 
-(defn- add-default [v d]
+(defn add-default [v d]
   (or v d))
 
 (defn with-propagator
@@ -414,10 +414,10 @@
               (update-in [:in] with-propagator)))
         coll))
 
-(defn- derive-maps [derives]
+(defn derive-maps [derives]
   (dataflow-maps derives (fn [[in out fn args]] {:in in :out out :fn fn :args args})))
 
-(defn- output-maps [outputs]
+(defn output-maps [outputs]
   (dataflow-maps outputs (fn [[in fn args]] {:in in :fn fn :args args})))
 
 (defn build
