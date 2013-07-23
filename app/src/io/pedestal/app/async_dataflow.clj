@@ -78,9 +78,10 @@
   (let [cout (chan)
         emit-input (chan)
         emit-output (run-pipeline emit-input (map #(channel-fn (emit-fn %)) (:emit dataflow)))]
-    (go (let [state (<! cin)]
-          (>! emit-input (assoc state :remaining-change (:change state)))
-          (>! cout (dissoc (<! emit-output) :remaining-change))))
+    (go (while true
+          (let [state (<! cin)]
+            (>! emit-input (assoc state :remaining-change (:change state)))
+            (>! cout (dissoc (<! emit-output) :remaining-change)))))
     cout))
 
 (defn- output-fn [k output]
