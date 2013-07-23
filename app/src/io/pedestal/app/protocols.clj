@@ -18,7 +18,9 @@
 
 (defprotocol PutMessage
   (put-message [this message]
-    "Put a message in a queue."))
+    "Put a message in a queue.")
+  (put-messages [this messages]
+    "Put all messages in a queue. Ensure that the message are put on the queue in order."))
 
 (defprotocol TakeMessage
   (pop-message [this]
