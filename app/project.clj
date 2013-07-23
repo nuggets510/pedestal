@@ -18,6 +18,7 @@
                  [enlive "1.0.0" :exclusions [org.clojure/clojure]]
                  [domina "1.0.1"]
                  [org.clojure/core.async "0.1.0-SNAPSHOT"]]
+  :repositories {"sonatype-oss-public" "https://oss.sonatype.org/content/groups/public/"}
   :test-paths ["test/clj"]
   :profiles {:dev {:source-paths ["dev"]}}
   :aliases {"dumbrepl" ["trampoline" "run" "-m" "clojure.main/main"]})
