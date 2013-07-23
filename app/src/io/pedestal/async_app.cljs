@@ -10,7 +10,7 @@
 ; You must not remove this notice, or any other, from this software.
 
 (ns io.pedestal.async-app
-  (:require [clojure.core.async.impl.channels :as channels]
+  (:require [cljs.core.async.impl.channels :as channels]
             [clojure.set :as set]
             [io.pedestal.app.protocols :as p]
             [io.pedestal.app.messages :as msg]
@@ -21,7 +21,8 @@
             [io.pedestal.app.util.adapters :as adapters]
             [io.pedestal.app.util.log :as log]
             [io.pedestal.app.util.platform :as platform])
-  (:use [clojure.core.async :only [go chan <! >!]]))
+  (:require-macros [cljs.core.async.macros :refer [go]])
+  (:use [cljs.core.async :only [chan <! >!]]))
 
 (defn channel? [c]
   (satisfies? channels/MMC c))

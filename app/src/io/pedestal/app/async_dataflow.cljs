@@ -10,11 +10,12 @@
 ; You must not remove this notice, or any other, from this software.
 
 (ns io.pedestal.app.async-dataflow
-  (:require [clojure.core.async.impl.channels :as channels]
+  (:require [cljs.core.async.impl.channels :as channels]
             [io.pedestal.app.data.tracking-map :as tm]
             [io.pedestal.app.util.platform :as platform]
             [io.pedestal.app.dataflow :as dataflow])
-  (:use [clojure.core.async :only [go chan <! >!]]))
+  (:require-macros [cljs.core.async.macros :refer [go]])
+  (:use [cljs.core.async :only [chan <! >!]]))
 
 (defn channel? [c]
   (satisfies? channels/MMC c))

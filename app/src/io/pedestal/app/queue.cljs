@@ -14,11 +14,12 @@
   Clojure and ClojureScript. In the future, there will be both Clojure and ClojureScript
   implementations of this queue which will take advantage of the capabilities of each
   platform."
-  (:require [clojure.core.async.impl.channels :as channels]
+  (:require [cljs.core.async.impl.channels :as channels]
             [io.pedestal.app.protocols :as p]
             [io.pedestal.app.messages :as msg]
             [io.pedestal.app.util.platform :as platform])
-  (:use [clojure.core.async :only [go >!]]))
+  (:require-macros [cljs.core.async.macros :refer [go]])
+  (:use [cljs.core.async :only [>!]]))
 
 (defn- pop-message-internal [queue-state]
   (let [queues (:queues queue-state)
@@ -71,7 +72,7 @@
                     (f message)
                     (consume-queue queue f))))
 
-(extend-type clojure.core.async.impl.channels.ManyToManyChannel
+(extend-type cljs.core.async.impl.channels.ManyToManyChannel
   p/PutMessage
   (put-message [this message]
     ;; TODO: this does not currently support high and low priority
