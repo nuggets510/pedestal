@@ -14,9 +14,11 @@
   Clojure and ClojureScript. In the future, there will be both Clojure and ClojureScript
   implementations of this queue which will take advantage of the capabilities of each
   platform."
-  (:require [io.pedestal.app.protocols :as p]
+  (:require [clojure.core.async.impl.channels :as channels]
+            [io.pedestal.app.protocols :as p]
             [io.pedestal.app.messages :as msg]
-            [io.pedestal.app.util.platform :as platform]))
+            [io.pedestal.app.util.platform :as platform])
+  (:use [clojure.core.async :only [go >!]]))
 
 (defn- pop-message-internal [queue-state]
   (let [queues (:queues queue-state)
@@ -68,4 +70,21 @@
                   (fn [message]
                     (f message)
                     (consume-queue queue f))))
+
+(extend-type clojure.core.async.impl.channels.ManyToManyChannel
+  p/PutMessage
+  (put-message [this message]
+    ;; TODO: this does not currently support high and low priority
+    ;; messages
+    (go (>! this message)))
+  (put-messages [this messages]
+    ;; TODO: this does not currently support high and low priority
+    ;; messages
+    (go (doseq [message messages]
+          (>! this message))))
+  p/TakeMessage
+  (pop-message [this]
+    (assert nil "pop-message it not implemented for channels!"))
+  (take-message [this f]
+    (go (while true (f (<! this))))))
 
