@@ -180,6 +180,22 @@
       (pre-fn message)
       [message])))
 
+(defn- receive-input-message [state flow input-queue cin cout]
+  (p/take-message input-queue
+                  (fn [message]
+                    (go (if (:pre flow)
+                          (doseq [message (pre-process flow message)]
+                            (>! cin [@state message])
+                            (reset! state (<! cout)))
+                          (do
+                            (>! cin [@state message])
+                            (reset! state (<! cout))))
+                        (platform/create-timeout 0 #(receive-input-message state
+                                                                           flow
+                                                                           input-queue
+                                                                           cin
+                                                                           cout))))))
+
 (defn- post-process-effects [flow message]
   (let [post-fn (some (fn [[pred f]] (when (pred message) f))
                       (-> flow :post :effect))]
@@ -283,7 +299,8 @@
                                 ;; easire to confgure
                                 [{msg/topic msg/app-model msg/type :subscribe :paths [[]]}])]
        (let [init-messages (vec (mapcat :init (:transform description)))]
-         (concat start-messages init-messages)))))
+         (doseq [message (concat start-messages init-messages)]
+           (p/put-message (:input app) message))))))
 
 
 ;; Queue consumers
@@ -307,8 +324,10 @@
 ;; ================================================================================
 
 (defn run! [app script]
+  (assert (or (vector? script) (list? script)) "The passed script must be a vector or list")
   (assert (every? map? script) "Each element of the passed script must be a map")
-  (p/put-messages (:input app) script))
+  (doseq [message script]
+    (p/put-message (:input app) message)))
 
 
 ;; Build
@@ -334,30 +353,18 @@
                         (update-in [:input-adapter] ensure-input-adapter)
                         (update-in [:transform] rekey-transforms))
         dataflow (async-dataflow/build description)
-        input-channel (chan)
-        output-channel (chan)
-        app-model-channel (chan)
+        input-queue (queue/queue :input)
+        output-queue (queue/queue :output)
+        app-model-queue (queue/queue :app-model)
         transact-in (chan)
         transact-out (transact-one transact-in dataflow)]
-
-    (go (while true
-          (let [message (<! input-channel)]
-            (if (:pre dataflow)
-              ;; TODO: This is ugly - repeated code and a race
-              ;; condition. Eventually the atom will go away.
-              (doseq [message (pre-process dataflow message)]
-                (>! transact-in [@app-atom message])
-                (reset! app-atom (<! transact-out)))
-              (do
-                (>! transact-in [@app-atom message])
-                (reset! app-atom (<! transact-out)))))))
-    
-    (send-effects app-atom dataflow output-channel)
-    (continue-inputs app-atom dataflow input-channel)
-    (send-app-model-deltas app-atom dataflow app-model-channel)
+    (receive-input-message app-atom dataflow input-queue transact-in transact-out)
+    (send-effects app-atom dataflow output-queue)
+    (continue-inputs app-atom dataflow input-queue)
+    (send-app-model-deltas app-atom dataflow app-model-queue)
     {:state app-atom
      :description description
      :dataflow dataflow
-     :input input-channel
-     :output output-channel
-     :app-model app-model-channel}))
+     :input input-queue
+     :output output-queue
+     :app-model app-model-queue}))
