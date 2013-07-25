@@ -15,56 +15,13 @@
             [io.pedestal.app.tree :as tree]
             [io.pedestal.app.dataflow :as dataflow]
             [io.pedestal.app.render :as render]
-            [io.pedestal.app.util.test :as test]
+            
             [io.pedestal.async-app :as app :refer :all])
   (:use clojure.test
+        io.pedestal.app.util.test
         [io.pedestal.app.query :only [q]]))
 
-(defn run-sync! [app script & {:keys [begin timeout wait-for]}]
-  (assert (or (nil? begin)
-              (= begin :default)
-              (vector? begin))
-          "begin must be nil, the keyword :default or a vector of messages")
-  (assert (or (nil? wait-for)
-              (every? #(contains? #{:output :app-model} %) wait-for))
-          "wait-for must be nil or a seq with a subset of #{:output :app-model}")
-  (let [timeout (or timeout 1000)
-        script (conj (vec (butlast script)) (with-meta (last script) {::last true}))
-        record-states (atom [@(:state app)])]
-    (add-watch (:state app) :state-watch
-               (fn [_ _ _ n]
-                 (swap! record-states conj n)))
-    ;; Run begin messages
-    (let [begin-messages (cond (= begin :default) (app/begin app)
-                               (vector? begin) (app/begin app begin))]
-      (run! app (concat begin-messages script)))
-    ;; Wait for all messages to be processed
-    (loop [tout timeout]
-      (let [last-input (-> app :state deref :io.pedestal.async-app/input)]
-        (when (not= (meta last-input) {::last true})
-          (if (neg? tout)
-            (throw (Exception. (str "Test timeout after " timeout "ms.\n"
-                                    " Last input: " last-input "\n"
-                                    " Meta: " (meta last-input))))
-            (do (Thread/sleep 20)
-                (recur (- tout 20)))))))
-    ;; Wait for specified queues to be consumed
-    #_(if (seq wait-for)
-      (doseq [k wait-for]
-        (loop [queue (:queue @(.state (k app)))
-               c 0]
-          (when (> c 3)
-            (throw (Exception. (str "The queue " k " is not being consumed."))))
-          (when-not (zero? (count queue))
-            (Thread/sleep 20)
-            (let [new-queue (:queue @(.state (k app)))]
-              (recur new-queue
-                     (if (= new-queue queue)
-                       (inc c)
-                       0)))))))
-    @record-states))
-
-(test/refer-privates io.pedestal.async-app filter-deltas)
+(refer-privates io.pedestal.async-app filter-deltas)
 
 (defn input->emitter-output
   "Given a sequence of states return a sequence of maps with :input
@@ -96,7 +53,7 @@
 
 (deftest test-simplest-possible-app
   (let [app (build simplest-possible-app)
-        results (run-sync! app [{msg/topic :model-a :n 42}] :begin :default)
+        results (new-run-sync! app [{msg/topic :model-a :n 42}] :begin :default)
         results (standardize-results results)]
     (is (not (nil? app)))
     (is (= (count results) 4))
@@ -139,10 +96,10 @@
 
 (deftest test-two-models-app
   (let [app (build two-models-app)
-        results (run-sync! app [{msg/topic :model-a :n 42}
-                                {msg/topic :model-b :n 11}
-                                {msg/topic :model-a :n 3}]
-                           :begin :default)
+        results (new-run-sync! app [{msg/topic :model-a :n 42}
+                                    {msg/topic :model-b :n 11}
+                                    {msg/topic :model-a :n 3}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -202,10 +159,10 @@
 
 (deftest test-two-views-app
   (let [app (build two-views-app)
-        results (run-sync! app [{msg/topic :model-a :n 42}
-                                {msg/topic :model-b :n 10}
-                                {msg/topic :model-a :n 3}]
-                            :begin :default)
+        results (new-run-sync! app [{msg/topic :model-a :n 42}
+                                    {msg/topic :model-b :n 10}
+                                    {msg/topic :model-a :n 3}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -280,10 +237,10 @@
 
 (deftest test-square-root
   (let [app (build square-root-app)
-        results (run-sync! app [{msg/topic :accuracy :n 0.000001}
-                                {msg/topic :x :n 42}
-                                {msg/topic :guess :n 7}]
-                            :begin :default)
+        results (new-run-sync! app [{msg/topic :accuracy :n 0.000001}
+                                    {msg/topic :x :n 42}
+                                    {msg/topic :guess :n 7}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -312,11 +269,11 @@
 
 (deftest test-square-root-modify-inputs
   (let [app (build square-root-app)
-        results (run-sync! app [{msg/topic :accuracy :n 0.000001}
-                                {msg/topic :x :n 42}
-                                {msg/topic :guess :n 7}
-                                {msg/topic :x :n 50}]
-                            :begin :default)
+        results (new-run-sync! app [{msg/topic :accuracy :n 0.000001}
+                                    {msg/topic :x :n 42}
+                                    {msg/topic :guess :n 7}
+                                    {msg/topic :x :n 50}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -364,7 +321,7 @@
 
 (deftest test-dependent-views-which-depend-on-one-model
   (let [app (build dependent-views-app)
-        results (run-sync! app [{msg/topic :x :n 42}
+        results (new-run-sync! app [{msg/topic :x :n 42}
                                 {msg/topic :x :n 12}]
                             :begin :default)
         results (standardize-results results)]
@@ -396,9 +353,9 @@
 
 (deftest test-two-views-with-same-input-old-values
   (let [app (build two-views-with-same-input-old-values)
-        results (run-sync! app [{msg/topic :x :n 1}
-                                {msg/topic :x :n 2}]
-                            :begin :default)
+        results (new-run-sync! app [{msg/topic :x :n 1}
+                                    {msg/topic :x :n 2}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -427,9 +384,9 @@
 
 (deftest test-two-views-with-same-input-new-values
   (let [app (build two-views-with-same-input-new-values)
-        results (run-sync! app [{msg/topic :x :n 1}
-                                {msg/topic :x :n 2}]
-                            :begin :default)
+        results (new-run-sync! app [{msg/topic :x :n 1}
+                                    {msg/topic :x :n 2}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -495,9 +452,9 @@
       (let [output-state (atom [])
             app (build output-app)
             _ (capture-queue 3 :output app output-state)
-            results (run-sync! app [{msg/topic :x :n 42}
-                                    {msg/topic :x :n 12}]
-                                :begin :default)
+            results (new-run-sync! app [{msg/topic :x :n 42}
+                                        {msg/topic :x :n 12}]
+                                   :begin :default)
             results (standardize-results results)]
         (is (= @output-state
                [{msg/topic {:service :s} :n 0}
@@ -509,9 +466,9 @@
             app (build (merge output-app
                               {:output {:half (echo-output :s)}}))
             _ (capture-queue 3 :output app output-state)
-            results (run-sync! app [{msg/topic :x :n 42}
-                                    {msg/topic :x :n 12}]
-                                :begin :default)
+            results (new-run-sync! app [{msg/topic :x :n 42}
+                                        {msg/topic :x :n 12}]
+                                   :begin :default)
             results (standardize-results results)]
         (is (= @output-state
                [{msg/topic {:service :s} :n 0.0}
@@ -543,10 +500,10 @@
       (let [output-state (atom [])
             app (build output-app)
             _ (capture-queue 4 :output app output-state)
-            results (run-sync! app [{msg/topic [:x] msg/type :number :n 42}
-                                    {msg/topic msg/output :payload [[:z] 9999]}
-                                    {msg/topic [:x] msg/type :number :n 12}]
-                               :begin :default)
+            results (new-run-sync! app [{msg/topic [:x] msg/type :number :n 42}
+                                        {msg/topic msg/output :payload [[:z] 9999]}
+                                        {msg/topic [:x] msg/type :number :n 12}]
+                                   :begin :default)
             results (standardize-results results)]
         (is (= @output-state
                [[[:x] 0]
@@ -571,9 +528,9 @@
               output-app (assoc output-app :pre [[:number [:x] copy-to-output]])
               app (build output-app)
               _ (capture-queue 6 :output app output-state)
-              results (run-sync! app [{msg/topic [:x] msg/type :number :n 42}
-                                      {msg/topic [:x] msg/type :number :n 12}]
-                                 :begin :default)
+              results (new-run-sync! app [{msg/topic [:x] msg/type :number :n 42}
+                                          {msg/topic [:x] msg/type :number :n 12}]
+                                     :begin :default)
               results (standardize-results results)]
           (is (= @output-state
                  [{msg/topic [:x] msg/type :number :n 0}
@@ -601,9 +558,9 @@
   (let [app (build dependent-views-app)
         renderer-state (atom [])]
     (capture-queue 4 :app-model app renderer-state)
-    (let [results (run-sync! app [{msg/topic :x :n 42}
-                                  {msg/topic :x :n 12}]
-                              :begin :default)
+    (let [results (new-run-sync! app [{msg/topic :x :n 42}
+                                      {msg/topic :x :n 12}]
+                                 :begin :default)
           results (standardize-results results)]
       (is (= (set @renderer-state)
              #{{msg/topic msg/app-model
@@ -659,9 +616,9 @@
 
 (deftest test-dataflow-one
   (let [app (build dataflow-test-one)
-        results (run-sync! app [{msg/topic :x :n 1}
-                                {msg/topic :x :n 2}]
-                            :begin :default)
+        results (new-run-sync! app [{msg/topic :x :n 1}
+                                    {msg/topic :x :n 2}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -696,9 +653,9 @@
 
 (deftest test-dataflow-two
   (let [app (build dataflow-test-two)
-        results (run-sync! app [{msg/topic :x :n 1}
-                                {msg/topic :x :n 2}]
-                            :begin :default)
+        results (new-run-sync! app [{msg/topic :x :n 1}
+                                    {msg/topic :x :n 2}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -762,10 +719,10 @@
 (deftest test-navigation-app
   (testing "only view the default paths"
     (let [app (build navigation-app)
-          results (run-sync! app [{msg/topic :a :n 10}
-                                  {msg/topic :b :n 11}
-                                  {msg/topic :c :n 12}]
-                              :begin :default)
+          results (new-run-sync! app [{msg/topic :a :n 10}
+                                      {msg/topic :b :n 11}
+                                      {msg/topic :c :n 12}]
+                                 :begin :default)
           results (standardize-results results)]
       (is (= (partition-sets (input->emitter-output results) [4 1 3 1 1 1])
              [#{{:input nil :emitter #{}}
@@ -796,16 +753,16 @@
                :emitter #{}}]))))
   (testing "navigate between paths"
     (let [app (build navigation-app)
-          results (run-sync! app [{msg/topic :a :n 10}
-                                  {msg/topic :b :n 11}
-                                  {msg/topic msg/app-model msg/type :navigate :name :b}
-                                  {msg/topic :b :n 12}
-                                  {msg/topic :c :n 13}
-                                  {msg/topic msg/app-model msg/type :navigate :name :c}
-                                  {msg/topic :c :n 14}
-                                  {msg/topic :a :n 15}
-                                  {msg/topic msg/app-model msg/type :navigate :name :a}]
-                             :begin :default)
+          results (new-run-sync! app [{msg/topic :a :n 10}
+                                      {msg/topic :b :n 11}
+                                      {msg/topic msg/app-model msg/type :navigate :name :b}
+                                      {msg/topic :b :n 12}
+                                      {msg/topic :c :n 13}
+                                      {msg/topic msg/app-model msg/type :navigate :name :c}
+                                      {msg/topic :c :n 14}
+                                      {msg/topic :a :n 15}
+                                      {msg/topic msg/app-model msg/type :navigate :name :a}]
+                                 :begin :default)
           results (standardize-results results)]
       (is (= (input->emitter-output results)
              [{:input nil :emitter #{}}
@@ -862,15 +819,15 @@
                       :z [[:d]]
                       :default :x}}
         app (build flow)
-        results (run-sync! app [{msg/topic [:a] msg/type :inc}
-                                {msg/topic [:b] msg/type :inc}
-                                {msg/topic [:c] msg/type :inc}
-                                {msg/topic msg/app-model msg/type :set-focus :name :y}
-                                {msg/topic [:a] msg/type :inc}
-                                {msg/topic [:c] msg/type :inc}
-                                {msg/topic [:d] msg/type :inc}
-                                {msg/topic msg/app-model msg/type :navigate :name :z}]
-                           :begin :default)
+        results (new-run-sync! app [{msg/topic [:a] msg/type :inc}
+                                    {msg/topic [:b] msg/type :inc}
+                                    {msg/topic [:c] msg/type :inc}
+                                    {msg/topic msg/app-model msg/type :set-focus :name :y}
+                                    {msg/topic [:a] msg/type :inc}
+                                    {msg/topic [:c] msg/type :inc}
+                                    {msg/topic [:d] msg/type :inc}
+                                    {msg/topic msg/app-model msg/type :navigate :name :z}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (apply concat (map :io.pedestal.async-app/emitter-deltas results))
            [[:node-create [] :map]
@@ -905,23 +862,23 @@
 
 (deftest test-subscribe-and-unsubscribe-app
   (let [app (build subscribe-and-unsubscribe-app)
-        results (run-sync! app
-                           [{msg/topic :a :n 10}
-                            {msg/topic msg/app-model msg/type :subscribe :paths [[:a]]}
-                            {msg/topic :b :n 11}
-                            {msg/topic :c :n 12}
-                            {msg/topic :a :n 13}
-                            {msg/topic msg/app-model msg/type :unsubscribe :paths [[:a]]}
-                            {msg/topic :c :n 14}
-                            {msg/topic msg/app-model msg/type :subscribe :paths [[:b] [:c]]}
-                            {msg/topic :a :n 15}
-                            {msg/topic :b :n 16}
-                            {msg/topic :c :n 17}
-                            {msg/topic msg/app-model msg/type :unsubscribe :paths [[:b]]}
-                            {msg/topic :a :n 18}
-                            {msg/topic :b :n 19}
-                            {msg/topic :c :n 20}]
-                           :begin [{msg/topic msg/app-model msg/type :noop}])
+        results (new-run-sync! app
+                               [{msg/topic :a :n 10}
+                                {msg/topic msg/app-model msg/type :subscribe :paths [[:a]]}
+                                {msg/topic :b :n 11}
+                                {msg/topic :c :n 12}
+                                {msg/topic :a :n 13}
+                                {msg/topic msg/app-model msg/type :unsubscribe :paths [[:a]]}
+                                {msg/topic :c :n 14}
+                                {msg/topic msg/app-model msg/type :subscribe :paths [[:b] [:c]]}
+                                {msg/topic :a :n 15}
+                                {msg/topic :b :n 16}
+                                {msg/topic :c :n 17}
+                                {msg/topic msg/app-model msg/type :unsubscribe :paths [[:b]]}
+                                {msg/topic :a :n 18}
+                                {msg/topic :b :n 19}
+                                {msg/topic :c :n 20}]
+                               :begin [{msg/topic msg/app-model msg/type :noop}])
         results (standardize-results results)]
     (is (= (input->emitter-output results)
            [{:input nil :emitter #{}}
@@ -1003,7 +960,7 @@
                                 :b-combine {:fn b-combine :input #{:count-transform}}}
                       :emit {:counter-emit {:fn counter-emit :input #{:a-combine :b-combine}}}}
             app (build dataflow)
-            results (run-sync! app [{msg/topic :count-transform msg/type :inc :key :a}] :begin :default)
+            results (new-run-sync! app [{msg/topic :count-transform msg/type :inc :key :a}] :begin :default)
             results (standardize-results results)]
         (is (= (apply concat (map :io.pedestal.async-app/emitter-deltas results))
                [[:node-create [] :map]
@@ -1025,7 +982,7 @@
                       :emit [{:in #{[:counter :*]} :fn (default-emitter :root)
                               :init (fn [_] [{:root {:counter {:a {} :b {}}}}])}]}
             app (build dataflow)
-            results (run-sync! app [{msg/topic [:counter :a] msg/type :inc}] :begin :default)
+            results (new-run-sync! app [{msg/topic [:counter :a] msg/type :inc}] :begin :default)
             results (standardize-results results)]
         (is (= (apply concat (map :io.pedestal.async-app/emitter-deltas results))
                [[:node-create [] :map]
@@ -1043,7 +1000,7 @@
                       :transform [[:inc [:counter :*] count-transform]]
                       :emit [[#{[:counter :*]} (default-emitter [:root :path])]]}
             app (build dataflow)
-            results (run-sync! app [{msg/topic [:counter :a] msg/type :inc}] :begin :default)
+            results (new-run-sync! app [{msg/topic [:counter :a] msg/type :inc}] :begin :default)
             results (standardize-results results)]
         (is (= (apply concat (map :io.pedestal.async-app/emitter-deltas results))
                [[:node-create [] :map]
@@ -1073,7 +1030,7 @@
                     {msg/topic [:b] msg/type :dissoc :key :counter}
                     {msg/topic msg/app-model msg/type :navigate :name :a}]]
       (let [app (build dataflow)
-            results (run-sync! app messages :begin :default)
+            results (new-run-sync! app messages :begin :default)
             results (standardize-results results)]
         (is (= (apply concat (map :io.pedestal.async-app/emitter-deltas results))
                [[:node-create [] :map]
@@ -1092,7 +1049,7 @@
                 [:node-create [:a] :map]
                 [:value [:a] nil {:counter {:a 1 :b 1}}]])))
       (let [app (build (assoc dataflow :emit [[#{[:* :*]} (default-emitter [])]]))
-            results (run-sync! app messages :begin :default)
+            results (new-run-sync! app messages :begin :default)
             results (standardize-results results)]
         (is (= (apply concat (map :io.pedestal.async-app/emitter-deltas results))
                [[:node-create [] :map]
@@ -1115,7 +1072,7 @@
                 [:node-create [:a :counter] :map]
                 [:value [:a :counter] nil {:a 1 :b 1}]])))
       (let [app (build (assoc dataflow :emit [[#{[:* :* :*]} (default-emitter [])]]))
-            results (run-sync! app messages :begin :default)
+            results (new-run-sync! app messages :begin :default)
             results (standardize-results results)]
         (is (= (partition-sets (apply concat (map :io.pedestal.async-app/emitter-deltas results))
                                [8 12 12])
@@ -1169,10 +1126,10 @@
           app (build flow)
           _ (capture-queue 6 :output app output-state)
           _ (capture-queue 6 :app-model app app-model-state)
-          _ (run-sync! app [{msg/topic [:a] msg/type :inc}
-                            {msg/topic msg/output :payload [[:z] 9999]}
-                            {msg/topic [:b] msg/type :inc}]
-                       :begin :default)]
+          _ (new-run-sync! app [{msg/topic [:a] msg/type :inc}
+                                {msg/topic msg/output :payload [[:z] 9999]}
+                                {msg/topic [:b] msg/type :inc}]
+                           :begin :default)]
       (is (= @output-state
              [[:a-tag [:a] 1]
               [[:z] 9999]
@@ -1197,9 +1154,9 @@
                              [#{[:bar :quux :*]} (default-emitter :foo)]
                              [#{[:*]} (default-emitter :foo)]]})
           app-model (render/consume-app-model app (constantly nil))]
-      (is (run-sync! app [{msg/type :test-transform msg/topic [:bar] :value {:a 10 :b 20}}]
-                     :begin :default
-                     :wait-for [:app-model]))
+      (is (new-run-sync! app [{msg/type :test-transform msg/topic [:bar] :value {:a 10 :b 20}}]
+                         :begin :default
+                         :wait-for [:app-model]))
       (is (= (-> app :state deref :data-model)
              {:bar {:quux {:a 10 :b 20}
                     :baz {:a 10 :b 20}}}))
@@ -1215,9 +1172,9 @@
 (deftest test-truthy-data-model-values
   (let [app (build {:version 2
                     :transform [[:set-value [:*] (fn [_ message] (:value message))]]})
-        results (run-sync! app [{msg/type :set-value msg/topic [:x] :value true}
-                                {msg/type :set-value msg/topic [:x] :value false}]
-                           :begin :default)
+        results (new-run-sync! app [{msg/type :set-value msg/topic [:x] :value true}
+                                    {msg/type :set-value msg/topic [:x] :value false}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (-> app :state deref :data-model)
            {:x false}))
@@ -1228,9 +1185,9 @@
             [:value [:x] true false]])))
   (let [app (build {:version 2
                     :transform [[:set-value [:*] (fn [_ message] (:value message))]]})
-        results (run-sync! app [{msg/type :set-value msg/topic [:x] :value true}
-                                {msg/type :set-value msg/topic [:x] :value nil}]
-                           :begin :default)
+        results (new-run-sync! app [{msg/type :set-value msg/topic [:x] :value true}
+                                    {msg/type :set-value msg/topic [:x] :value nil}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (-> app :state deref :data-model)
            {:x nil}))
@@ -1242,12 +1199,12 @@
   (let [app (build {:version 2
                     :transform [[:set-value [:*] (fn [_ message] (:value message))]]
                     :emit [[#{[:* :*]} (default-emitter [])]]})
-        results (run-sync! app [{msg/type :set-value msg/topic [:x] :value {:a 1 :b 1}}
-                                {msg/type :set-value msg/topic [:x] :value {:a 0 :b 1}}
-                                {msg/type :set-value msg/topic [:x] :value {:a 0}}
-                                {msg/type :set-value msg/topic [:x] :value {:a nil}}
-                                {msg/type :set-value msg/topic [:x] :value nil}]
-                           :begin :default)
+        results (new-run-sync! app [{msg/type :set-value msg/topic [:x] :value {:a 1 :b 1}}
+                                    {msg/type :set-value msg/topic [:x] :value {:a 0 :b 1}}
+                                    {msg/type :set-value msg/topic [:x] :value {:a 0}}
+                                    {msg/type :set-value msg/topic [:x] :value {:a nil}}
+                                    {msg/type :set-value msg/topic [:x] :value nil}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (-> app :state deref :data-model)
            {:x nil}))
@@ -1266,12 +1223,12 @@
   (let [app (build {:version 2
                     :transform [[:set-value [:*] (fn [_ message] (:value message))]]
                     :emit [[#{[:* :*]} (default-emitter [])]]})
-        results (run-sync! app [{msg/type :set-value msg/topic [:x] :value {:a true :b true}}
-                                {msg/type :set-value msg/topic [:x] :value {:a false :b true}}
-                                {msg/type :set-value msg/topic [:x] :value {:a false}}
-                                {msg/type :set-value msg/topic [:x] :value {:a nil}}
-                                {msg/type :set-value msg/topic [:x] :value nil}]
-                           :begin :default)
+        results (new-run-sync! app [{msg/type :set-value msg/topic [:x] :value {:a true :b true}}
+                                    {msg/type :set-value msg/topic [:x] :value {:a false :b true}}
+                                    {msg/type :set-value msg/topic [:x] :value {:a false}}
+                                    {msg/type :set-value msg/topic [:x] :value {:a nil}}
+                                    {msg/type :set-value msg/topic [:x] :value nil}]
+                               :begin :default)
         results (standardize-results results)]
     (is (= (-> app :state deref :data-model)
            {:x nil}))
@@ -1319,9 +1276,9 @@
                                 [#{[:x :b]} [:u :a] id :single-val]
                                 [{[:u :*] :x} [:v :a] id :map]
                                 [{[:u :a] :x [:x :z] :x} [:v :b] id :map]}})
-          results (run-sync! app [{msg/type :swap msg/topic [:x] :value {:a 1 :b 2 :c 3}}
-                                  {msg/type :swap msg/topic [:y] :value {:a 5 :b 6 :c 7}}]
-                             :begin :default)
+          results (new-run-sync! app [{msg/type :swap msg/topic [:x] :value {:a 1 :b 2 :c 3}}
+                                      {msg/type :swap msg/topic [:y] :value {:a 5 :b 6 :c 7}}]
+                                 :begin :default)
           results (standardize-results results)]
       (is (= (-> app
                  :state
