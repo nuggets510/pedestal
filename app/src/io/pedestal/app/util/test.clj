@@ -11,7 +11,9 @@
 
 (ns io.pedestal.app.util.test
   (:require [io.pedestal.app :as app]
-            [io.pedestal.app.util.platform :as platform]))
+            [io.pedestal.async-app :as async-app]
+            [io.pedestal.app.util.platform :as platform]
+            [clojure.core.async :as async]))
 
 (defn run-sync! [app script & {:keys [begin timeout wait-for]}]
   (assert (or (nil? begin)
@@ -71,3 +73,48 @@
                [(:name (meta v)) v])
              (mapv (fn [sym] [sym (ns-resolve ns sym)]) (cons s syms))) ]
     `(do ~@(mapv (fn [[s v]] `(def ~s ~v)) xs))))
+
+(defn new-run-sync! [app script & {:keys [begin timeout wait-for]}]
+  (assert (or (nil? begin)
+              (= begin :default)
+              (vector? begin))
+          "begin must be nil, the keyword :default or a vector of messages")
+  (assert (or (nil? wait-for)
+              (every? #(contains? #{:output :app-model} %) wait-for))
+          "wait-for must be nil or a seq with a subset of #{:output :app-model}")
+  (let [timeout (or timeout 1000)
+        script (conj (vec (butlast script)) (with-meta (last script) {::last true}))
+        record-states (atom [@(:state app)])]
+    (add-watch (:state app) :state-watch
+               (fn [_ _ _ n]
+                 (swap! record-states conj n)))
+    ;; Run begin messages
+    (cond (= begin :default) (async-app/begin app)
+          (vector? begin) (async-app/begin app begin))
+    ;; Run script
+    (async-app/run! app script)
+    ;; Wait for all messages to be processed
+    (loop [tout timeout]
+      (let [last-input (-> app :state deref :io.pedestal.async-app/input)]
+        (when (not= (meta last-input) {::last true})
+          (if (neg? tout)
+            (throw (Exception. (str "Test timeout after " timeout "ms.\n"
+                                    " Last input: " last-input "\n"
+                                    " Meta: " (meta last-input))))
+            (do (Thread/sleep 20)
+                (recur (- tout 20)))))))
+    ;; Wait for specified queues to be consumed
+    (if (seq wait-for)
+      (doseq [k wait-for]
+        (loop [queue (:queue @(.state (k app)))
+               c 0]
+          (when (> c 3)
+            (throw (Exception. (str "The queue " k " is not being consumed."))))
+          (when-not (zero? (count queue))
+            (Thread/sleep 20)
+            (let [new-queue (:queue @(.state (k app)))]
+              (recur new-queue
+                     (if (= new-queue queue)
+                       (inc c)
+                       0)))))))
+    @record-states))
