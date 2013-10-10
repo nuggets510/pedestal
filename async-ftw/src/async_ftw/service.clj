@@ -6,7 +6,7 @@
               [io.pedestal.service.impl.interceptor :refer [with-pause resume]]
               [io.pedestal.service.interceptor :refer [definterceptor] :as interceptor]
               [io.pedestal.service.log :as log]
-              [clojure.core.async :refer [chan >! go]]
+              [clojure.core.async :refer [chan <! >! go timeout]]
               [ring.util.response :as ring-resp]))
 
 (defn log-thread-id [where]
@@ -27,7 +27,7 @@
               (log-thread-id "before with-pause")
               (let [c (chan)]
                 (go
-                  (Thread/sleep 1000)
+                  (<! (timeout 1000))
                   (log-thread-id "Pre-put")
                   (>! c context)
                   (log-thread-id "After-put"))
