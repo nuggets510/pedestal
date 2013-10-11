@@ -98,8 +98,7 @@
 
   This function is non-blocking, returning nil immediately (a signal to halt
   further execution on this thread)."
-  [old-context context-channel]
-  (prepare-for-async old-context)
+  [context-channel]
   (go
     (let [new-context (<! context-channel)]
       (execute new-context)))
@@ -127,7 +126,9 @@
                           (assoc ::stack (conj stack interceptor))
                           (try-f interceptor :enter))]
           (cond
-            (channel? context) (go-async old-context context)
+            (channel? context) (do
+                                 (prepare-for-async old-context)
+                                 (go-async context))
             (::error context) (dissoc context ::queue)
             (not= (:bindings context) pre-bindings) (assoc context ::rebind true)
             true (recur (check-terminators context))))))))
