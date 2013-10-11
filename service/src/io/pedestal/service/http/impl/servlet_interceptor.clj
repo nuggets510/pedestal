@@ -230,9 +230,8 @@
 
 (defn- leave-stylobate
   [{:keys [^HttpServletRequest servlet-request] :as context}]
-  (let [async-ctx (.getAsyncContext servlet-request)]
-    (when (.isAsyncStarted async-ctx) (.complete async-ctx))
-    context))
+  (when (.isAsyncStarted servlet-request) (.complete (.getAsyncContext servlet-request)))
+  context)
 
 (defn- send-error
   [context message]
